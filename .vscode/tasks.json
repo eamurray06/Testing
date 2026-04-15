@@ -1,0 +1,41 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "avr:build",
+      "type": "shell",
+      "command": "mkdir -p build && avr-gcc -mmcu=atmega328pb -DF_CPU=16000000UL -Os -std=gnu11 -Wall -Wextra firmware/src/main.c firmware/step_detector.c -o build/firmware.elf && avr-objcopy -O ihex -R .eeprom build/firmware.elf build/firmware.hex",
+      "group": "build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "avr:flash",
+      "type": "shell",
+      "command": "avrdude -p m328pb -c arduino -P ${input:serialPort} -b 115200 -D -U flash:w:build/firmware.hex:i",
+      "dependsOn": "avr:build"
+    },
+    {
+      "label": "avr:monitor",
+      "type": "shell",
+      "command": "python -m serial.tools.miniterm ${input:serialPort} 115200"
+    },
+    {
+      "label": "host:dashboard",
+      "type": "shell",
+      "command": "python -m uvicorn backend.app:app --reload",
+      "options": {
+        "env": {
+          "IMU_SERIAL_PORT": "${input:serialPort}"
+        }
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "serialPort",
+      "type": "promptString",
+      "description": "Serial port (e.g., /dev/ttyUSB0, COM4)",
+      "default": "/dev/ttyUSB0"
+    }
+  ]
+}
