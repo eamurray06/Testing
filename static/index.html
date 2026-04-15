@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ATmega328PB Step Detection Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; background: #0d1117; color: #e6edf3; }
+      .container { max-width: 1080px; margin: 0 auto; padding: 1rem; }
+      .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+      .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 1rem; }
+      .value { font-size: 2rem; font-weight: 700; }
+      canvas { background: #161b22; border: 1px solid #30363d; border-radius: 10px; margin-top: 1rem; }
+      .event { min-height: 2rem; color: #7ee787; font-weight: 700; }
+      @media (max-width: 900px) { .stats { grid-template-columns: 1fr 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>IMU Live Analytics & Step Detection</h1>
+      <p>Live stream from ATmega328PB (or simulator), adaptive thresholding, and per-step events.</p>
+
+      <div class="stats">
+        <div class="card"><div>Step Count</div><div class="value" id="steps">0</div></div>
+        <div class="card"><div>Magnitude (g)</div><div class="value" id="mag">0.00</div></div>
+        <div class="card"><div>Threshold</div><div class="value" id="thr">0.00</div></div>
+        <div class="card"><div>HP Sigma</div><div class="value" id="sigma">0.00</div></div>
+      </div>
+
+      <div class="card" style="margin-top:1rem">
+        <div><strong>Latest Step Event:</strong> <span class="event" id="event">Waiting for steps…</span></div>
+      </div>
+
+      <canvas id="imuChart" height="140"></canvas>
+    </div>
+
+    <script>
+      const ctx = document.getElementById('imuChart');
+      const maxPoints = 120;
+
+      const data = {
+        labels: [],
+        datasets: [
+          { label: 'Magnitude', data: [], borderColor: '#58a6ff', pointRadius: 0 },
+          { label: 'Threshold', data: [], borderColor: '#ffa657', pointRadius: 0 },
+        ],
+      };
+
+      const chart = new Chart(ctx, {
+        type: 'line',
+        data,
+        options: {
+          responsive: true,
+          animation: false,
+          scales: {
+            y: { min: 0, max: 3 },
+            x: { ticks: { color: '#8b949e' } },
+          },
+          plugins: { legend: { labels: { color: '#c9d1d9' } } },
+        },
+      });
+
+      const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${wsProto}://${location.host}/ws`);
+
+      ws.onopen = () => {
+        setInterval(() => ws.send('ping'), 1000);
+      };
+
+      ws.onmessage = ({ data: raw }) => {
+        const msg = JSON.parse(raw);
+        if (msg.type !== 'imu') return;
+
+        document.getElementById('steps').textContent = msg.steps;
+        document.getElementById('mag').textContent = msg.magnitude.toFixed(3);
+        document.getElementById('thr').textContent = msg.threshold.toFixed(3);
+        document.getElementById('sigma').textContent = msg.sigma_hp.toFixed(3);
+
+        if (msg.step_event) {
+          const time = new Date(msg.timestamp_ms).toLocaleTimeString();
+          document.getElementById('event').textContent = `Step #${msg.steps} detected at ${time} | peak=${msg.event.peak.toFixed(3)} threshold=${msg.event.threshold.toFixed(3)}`;
+        }
+
+        data.labels.push('');
+        data.datasets[0].data.push(msg.magnitude);
+        data.datasets[1].data.push(msg.threshold + 1.0);
+
+        if (data.labels.length > maxPoints) {
+          data.labels.shift();
+          data.datasets.forEach((d) => d.data.shift());
+        }
+
+        chart.update('none');
+      };
+
+      ws.onerror = () => {
+        document.getElementById('event').textContent = 'WebSocket error. Check backend connection.';
+      };
+    </script>
+  </body>
+</html>
